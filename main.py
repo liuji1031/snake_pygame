@@ -1,5 +1,5 @@
+# %%
 import numpy as np
-import asyncio
 import pygame
 from pygame.locals import (
     K_r,
@@ -8,15 +8,19 @@ from pygame.locals import (
     KEYDOWN,
     QUIT,
 )
-WIDTH = 500
-HEIGHT = 500
-n_obstacle = 3
 pygame.init()
 myfont = pygame.font.SysFont("Arial", 30)
 
-
+# %%
 class Node(pygame.sprite.Sprite):
+    """node of the snake
 
+    Args:
+        pygame (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     COLOR_INIT = (34, 227, 147)
     COLOR_CAPTURED = (151, 23, 255)
     COLOR_COLLISION = (255, 0, 0)
@@ -24,8 +28,7 @@ class Node(pygame.sprite.Sprite):
     DIST = 20
     Kp = 0.1
     Kd = Kp/3.
-    BUFFER_SIZE = 20
-    R=15
+    R=20
 
     def __init__(self, x=0, y=0,
                  coef=0.9):
@@ -52,7 +55,6 @@ class Node(pygame.sprite.Sprite):
         return self.rect.x+Node.R, self.rect.y+Node.R
 
     def update(self,x,y, head=True):
-        
         if head:
             self._update_head(x,y)
         else:
@@ -64,6 +66,13 @@ class Node(pygame.sprite.Sprite):
                             radius=Node.R)
         
     def _update_head(self, x, y):
+        """the update logic for the head node,
+        which follows the smoothed target point, i.e., mouse position
+
+        Args:
+            x (_type_): x position of the mouse
+            y (_type_): y position of the mouse
+        """
         cx,cy = self.center
         if self.target_x is None:
             self.target_x = x
@@ -87,6 +96,13 @@ class Node(pygame.sprite.Sprite):
         self.rect.y += dy
     
     def _update(self, x, y):
+        """update logic of non-head nodes, 
+        simply set to the corresponding coord
+
+        Args:
+            x (_type_): _description_
+            y (_type_): _description_
+        """
         self.rect.x = x-Node.R
         self.rect.y = y-Node.R
 
@@ -114,9 +130,17 @@ def binary_search(arr, x, l=0):
     return l
 
 class Snake():
+    """the snake class that contains the head and the body, is represented using
+    a singly linked list. The head is the first node and the body is the rest of
+    the nodes. 
+
+    Returns:
+        _type_: _description_
+    """
     COLLISION_SELF = 1
     COLLISION_WALL = 2
     COLLISION_OBS = 3
+
     def __init__(self,init_node,
                  width,height) -> None:
         self.body = pygame.sprite.Group()
@@ -131,48 +155,74 @@ class Snake():
         self.canvas_height = height
 
     def update(self,x,y):
+        """update the snake. the trajectory of the head is stored in a buffer
+        and the cumulative length of the trajectory is stored in traj_cum_len.
+        each segment's position is calculated based on the interpolated coord,
+        using the distance from the segment to the head. The interpolation is 
+        calculated using binary search on the cumulative length of the traj.
+
+        Args:
+            x (_type_): x of the mouse position
+            y (_type_): y of the mouse position
+        """
+
         # update head trajectory
         cx,cy = self.head.center
         px,py = self.head_traj[0]
         self.head_traj.insert(0, [cx,cy])
 
+        # update cumulative length
         d = np.sqrt((cx-px)**2 + (cy-py)**2)
         for i, _ in enumerate(self.traj_cum_len):
             self.traj_cum_len[i] += d
         self.traj_cum_len.insert(0, 0.0)
 
+        # remove old trajectory if longer than needed
         while self.traj_cum_len[-1] > self.seg_len*(self.n_nodes+1):
             self.traj_cum_len.pop(-1)
             self.head_traj.pop(-1)
             if len(self.head_traj) == 0:
                 break
-
+        
+        # update head
         self.head.update(x,y,head=True)
+
+        # update body
         next = self.head.next
         ind = 1
         k_prev = None
         while next:
             next:Node
             sl = ind*self.seg_len
+            # use binary search to find the pair of stored coordinate points
+            # to interpolate the segment's position
             k = binary_search(self.traj_cum_len, sl, k_prev)
             if k<=0 or k>=len(self.traj_cum_len):
                 break
+
+            # store found index, so next time we can start from there, instead 
+            # of starting at 0
             k_prev = k
-            # print(f"found {k}")
-            # print(len(self.traj_cum_len),len(self.head_traj))
+
+            # do interpolation and found x, y
             rho = (sl-self.traj_cum_len[k-1]) / \
                 (self.traj_cum_len[k]-self.traj_cum_len[k-1])
             x = (1-rho)*self.head_traj[k-1][0] + \
                 rho*self.head_traj[k][0]
             y = (1-rho)*self.head_traj[k-1][1] + \
                 rho*self.head_traj[k][1]
+            
+            # update body segment
             next.update(x,y,head=False)
+
+            # move on to the next segment
             next = next.next
             ind+=1
 
     def capture(self, node : Node):
-        """check if head is within some threshold of the rogue
-        node
+        """check if head is within some threshold of the food node
+        node. if so, add the node to the snake as the new head, and move the old
+        head to the body.
 
         Args:
             node (_type_): _description_
@@ -192,7 +242,7 @@ class Snake():
         return 0
     
     def check_collision(self, all_obs:pygame.sprite.Group):
-        """check if head has collided with the body
+        """check if head has collided with the body / wall / obstacle
         """
         if self._check_collision_self():
             return Snake.COLLISION_SELF
@@ -229,6 +279,9 @@ class Snake():
         return False
     
 class NodeSpawner:
+    """node spawning class, that spawns a node at a random location that does 
+    not collide with any other nodes or obstacles
+    """
     def __init__(self,
                  all_nodes,
                  all_obs,
@@ -253,6 +306,12 @@ class NodeSpawner:
         return Node(x,y)
     
 class Obstacle(pygame.sprite.Sprite):
+    """obstacle class that spawns a random rectangular obstacle at a random 
+    location. overlapping with each other is fine
+
+    Args:
+        pygame (_type_): _description_
+    """
     MAX_SIZE = 60
     MIN_SIZE = 20
     COLOR = (252, 3, 223)
@@ -270,7 +329,22 @@ class Obstacle(pygame.sprite.Sprite):
     def update(self):
         pass
 
+# %%
+# Set up the drawing window
+WIDTH = 500
+HEIGHT = 500
+n_obstacle = 3
+
+screen = pygame.display.set_mode([WIDTH, HEIGHT])
+clock = pygame.time.Clock()
+
 def wait_for_start(screen, clock):
+    """wait for the player to press space key to start the game
+
+    Args:
+        screen (_type_): _description_
+        clock (_type_): _description_
+    """
     screen.fill((255, 255, 255))
     text = myfont.render(f"Press space key to start", 1, (0,0,0))
     screen.blit(text, (0, 0))
@@ -286,6 +360,12 @@ def wait_for_start(screen, clock):
         clock.tick(30)
 
 def play(screen, clock):
+    """handles the main game loop
+
+    Args:
+        screen (_type_): _description_
+        clock (_type_): _description_
+    """
     running = True
 
     # spawn obstacles
@@ -306,7 +386,7 @@ def play(screen, clock):
     new_node = spawner.spawn()
     all_nodes.add(new_node)
 
-    # Main loop
+    # main loop
     spawn_counter = 1
     capture_counter = 0
     game_over = False
@@ -341,7 +421,7 @@ def play(screen, clock):
         if collision == Snake.COLLISION_SELF:
             print("collision with self, game over")
         elif collision == Snake.COLLISION_WALL:
-            print("collision with wall, game over")
+            print("collision with wall, game over")       
         elif collision == Snake.COLLISION_OBS:
             print("collision with obstacle, game over")
             
@@ -361,7 +441,16 @@ def play(screen, clock):
         pygame.display.update()
         clock.tick(30)
 
-def exit_game(screen, clock):
+def exit(screen, clock):
+    """user chooses to exit or restart the game
+
+    Args:
+        screen (_type_): _description_
+        clock (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     screen.fill((255, 255, 255))
     text = myfont.render(f"Press R (reset) / Esc (exit)", 1, (0,0,0))
     screen.blit(text, (0, 0))
@@ -383,13 +472,13 @@ def exit_game(screen, clock):
         clock.tick(30)
     return exit
 
-screen = pygame.display.set_mode([WIDTH, HEIGHT])
-clock = pygame.time.Clock()
 wait_for_start(screen, clock)
 while True:
     play(screen, clock)
     pygame.time.wait(2000)
-    if exit_game(screen, clock):
+    if exit(screen, clock):
         break
 
 pygame.quit()
+
+
