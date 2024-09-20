@@ -1,3 +1,27 @@
+# %% [markdown]
+# # Final Project
+# Ji Liu
+# 
+# This project utilizes a ***singly-linked list*** for the "Snake" game, written with Pygame. Unlike the conventional Snake game, the current game uses mouse to guide the snake, i.e., the head of the snake follows the mouse trajectory. In addition, some obstacles are added to the scene for difficulty.
+# 
+# ![gameplay](screenshot.png)
+# 
+# The compiled exe file for the game can be found at [***https://shorturl.at/7nHB6***](https://shorturl.at/7nHB6)
+# 
+# A video demo for the game can be found [***here***](https://www.dropbox.com/scl/fi/rrnvbeo5u1d9su0avmlhn/gameplay_vid.mp4?rlkey=ycb86jmroatbklz0jnd26s0ic&dl=0).
+# 
+# ## Data Structure
+# 
+# The basic unit of the snake is a "Node", which takes on different states (initialized, captured, collision). A Node is also the basic unit in the singly-linked list. The Snake instance stores the head of the singly-linked list. When the head of the Snake comes close to an uncaptured node (green), this node is inserted at the head of the list, i.e., it becomes the new head of the Snake. 
+# 
+# ## Movement
+# 
+# The head of the Snake is designed to follow the trajectory (exponentially smoothed) of the mouse cursor, while the body follows the past trajectory of the head. To achieve this function, the Snake class stores a ***buffer*** of the past coordinates of the head. In addition, it calculates the accumulative distance of these coordinates to the current location of the head along this trajectory. At each time step, the buffer append the latest values, as well as popping out values if the corresponding length is longer than the Snake length. 
+# 
+# The body segments' locations are updated as follows. First the length of the body segment is pre-defined. During update, the distance to the head, i.e., segment index times segment length, is used to query the accumulative distance buffer using ***binary search***, which returns the index through which we can interpolate the desired location along the stored past trajectory of the head. The head-body list is thus traversed in its entirety at each time step to determine the segment locations.
+# 
+# ## Code
+
 # %%
 import numpy as np
 import pygame
@@ -11,7 +35,6 @@ from pygame.locals import (
 pygame.init()
 myfont = pygame.font.SysFont("Arial", 30)
 
-# %%
 class Node(pygame.sprite.Sprite):
     """node of the snake
 
@@ -25,7 +48,7 @@ class Node(pygame.sprite.Sprite):
     COLOR_CAPTURED = (151, 23, 255)
     COLOR_COLLISION = (255, 0, 0)
     WHITE = (255,255,255)
-    DIST = 20
+    DIST = 0
     Kp = 0.1
     Kd = Kp/3.
     R=20
@@ -85,7 +108,7 @@ class Node(pygame.sprite.Sprite):
         x = self.target_x
         y = self.target_y
         
-        d = np.sqrt((cx-x)**2 + (cy-y)**2)
+        d = np.sqrt((cx-x)**2 + (cy-y)**2) + 1e-6
         e = np.abs(d-self.DIST)
         de = e-self.past_error
         self.past_error = e
@@ -291,18 +314,22 @@ class NodeSpawner:
         self.WIDTH = WIDTH
         self.HEIGHT = HEIGHT
 
-    def spawn(self):
-        redo=True
-        while redo:
-            x=np.random.randint(3*Node.R,self.WIDTH-3*Node.R)
-            y=np.random.randint(3*Node.R,self.HEIGHT-3*Node.R)
-            node = Node(x,y)
-            if pygame.sprite.spritecollideany(node, self.all_nodes) or \
-                pygame.sprite.spritecollideany(node, self.all_obs):
-                del node
-                continue
-            else:
-                redo=False
+    def spawn(self,x=None,y=None):
+        if not x:
+            redo=True
+            while redo:
+                x=np.random.randint(3*Node.R,self.WIDTH-3*Node.R)
+                y=np.random.randint(3*Node.R,self.HEIGHT-3*Node.R)
+                node = Node(x,y)
+                if pygame.sprite.spritecollideany(node, self.all_nodes) or \
+                    pygame.sprite.spritecollideany(node, self.all_obs):
+                    del node
+                    continue
+                else:
+                    redo=False
+        else:
+            x = np.clip(x, 3*Node.R, self.WIDTH-3*Node.R)
+            y = np.clip(y, 3*Node.R, self.HEIGHT-3*Node.R)
         return Node(x,y)
     
 class Obstacle(pygame.sprite.Sprite):
@@ -328,6 +355,7 @@ class Obstacle(pygame.sprite.Sprite):
 
     def update(self):
         pass
+
 
 # %%
 # Set up the drawing window
@@ -377,7 +405,8 @@ def play(screen, clock):
 
     # spawn the snake
     spawner = NodeSpawner(all_nodes,all_obs, WIDTH, HEIGHT)
-    init_node = spawner.spawn()
+    x,y = pygame.mouse.get_pos()
+    init_node = spawner.spawn(x,y)
     init_node.set_color(Node.COLOR_CAPTURED)
     all_nodes.add(init_node)
     snake = Snake(init_node, WIDTH, HEIGHT)
